@@ -17,8 +17,8 @@ let apple = { x: 700, y: 150, size: 60, dragging: false };
 let hammer = { x: 700, y: 280, size: 60, dragging: false };
 
 function setup() {
-  createCanvas(800, 500);
-//   canvas.parent("p5-canvas-container");
+  let canvas = createCanvas(800, 500);
+  canvas.parent("p5-canvas-container");
   noStroke();
   
   snakeX = width / 2;
