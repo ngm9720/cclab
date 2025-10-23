@@ -1,235 +1,232 @@
-let path = [];
-let numPoints = 80;
-let step = 1.5;
+
 let snakeX, snakeY;
-let turns = [];
-let segmentLength = 40;
-let minThick = 1;
-let maxThick = 60;
-
-let vanishingX, vanishingY;
-
-let animating = false;
+let segLength = 40;
+let stepSize = 1.5;
 let direction = 1;
+let animating = false;
 let frameInCycle = 0;
+let snakeLength = 70;
 
-let apple = { x: 700, y: 150, size: 60, dragging: false };
-let hammer = { x: 700, y: 280, size: 60, dragging: false };
+let portalActive = false;
+let portalPhase = 0;
+let entryPortalX, entryPortalY;
+let exitPortalX, exitPortalY;
+let entryPortalSize = 0;
+let exitPortalSize = 0;
+let entryPortalOpen = false;
+let exitPortalOpen = false;
+
+let turnAngles = [Math.PI / 2, Math.PI / 2, -Math.PI / 2, -Math.PI / 2];
+let minTh = 1;
+let maxTh = 60;
+
+let ptsX = [];
+let ptsY = [];
+
+let appleX, appleY, appleSize, appleDragging;
+let hammerX, hammerY, hammerSize, hammerDragging;
+
+let backgroundsave;
 
 function setup() {
   let canvas = createCanvas(800, 500);
   canvas.parent("p5-canvas-container");
   noStroke();
-  
+
   snakeX = width / 2;
   snakeY = 150;
-  
-  vanishingX = width / 2;
-  vanishingY = 0;
 
-  for (let i = 0; i < numPoints; i++) {
-    path.push({ x: -i * step, y: 0 });
+  for (let i = 0; i < snakeLength; i++) {
+    ptsX[i] = -i * stepSize;
+    ptsY[i] = 0;
   }
 
-  turns = [HALF_PI, HALF_PI, -HALF_PI, -HALF_PI];
+  appleX = 700; 
+  appleY = 150; 
+  appleSize = 60; 
+  appleDragging = false;
+
+  hammerX = 700; 
+  hammerY = 280; 
+  hammerSize = 60; 
+  hammerDragging = false;
+
+  drawGrassBackground();
+  backgroundsave = get();
 }
 
 function draw() {
-  drawGrassBackground();
+  image(backgroundsave, 0, 0);
+  
+  if (portalActive || entryPortalSize > 0 || exitPortalSize > 0) {
+    handlePortalAnimation();
+  }
+  
+  if (exitPortalSize > 0) {
+    drawPortal(exitPortalX, exitPortalY, exitPortalSize);
+  }
+  
   drawSnake();
+  
+  if (entryPortalSize > 0) {
+    drawPortal(entryPortalX, entryPortalY, entryPortalSize);
+  }
+  
   drawIcons();
   handleDragging();
 }
 
 function drawGrassBackground() {
   background(95, 150, 70);
-  
-  let baseColor1 = color(95, 150, 70);
-  let baseColor2 = color(70, 125, 50);
+  let base1 = color(95, 150, 70);
+  let base2 = color(70, 125, 50);
 
   for (let y = 0; y < height; y++) {
-    let t = map(y, 0, height, 0, 1);
-    stroke(lerpColor(baseColor1, baseColor2, t));
+    let t = y / height;
+    stroke(lerpColor(base1, base2, t));
     line(0, y, width, y);
   }
 
   noStroke();
-  randomSeed(12345);
-  for (let i = 0; i < 500; i++) {
+  randomSeed(1234);
+  for (let i = 0; i < 400; i++) {
     let bx = random(width);
     let by = pow(random(), 0.5) * height;
-    let depth = map(by, 0, height, 0, 1);
-    let bladeLen = lerp(6, 80, depth);
-    let bladeWidth = lerp(0.6, 3, depth);
-
-    let angle = atan2(vanishingY - by, vanishingX - bx) + random(-0.05, 0.05);
-    let tipX = bx + cos(angle) * bladeLen;
-    let tipY = by + sin(angle) * bladeLen;
-
+    let depth = by / height;
+    let len = lerp(8, 90, depth);
+    let w = lerp(1, 3, depth);
+    let ang = atan2(0 - by, width / 2 - bx) + random(-0.1, 0.1);
+    let tipx = bx + cos(ang) * len;
+    let tipy = by + sin(ang) * len;
     fill(lerpColor(color(80, 165, 75), color(60, 140, 50), random(0.2, 0.8)));
-    triangle(
-      bx - bladeWidth / 2, by,
-      bx + bladeWidth / 2, by,
-      tipX, tipY
-    );
+    triangle(bx - w, by, bx + w, by, tipx, tipy);
   }
 
-  fill(30, 80, 30, 50);
-  rect(0, height * 0.92, width, height * 0.08);
+  fill(30, 80, 30, 60);
+  rect(0, height * 0.93, width, height * 0.07);
 }
 
 function drawSnake() {
-  let totalFramesPerSegment = segmentLength;
-  let cycleFrames = segmentLength * turns.length;
+  let segFrames = segLength;
+  let totalFrames = segLength * 4;
 
   if (animating) {
     frameInCycle += direction;
-    if (frameInCycle >= cycleFrames || frameInCycle < 0) {
+    if (frameInCycle >= totalFrames || frameInCycle < 0) {
       animating = false;
-      frameInCycle = constrain(frameInCycle, 0, cycleFrames - 1);
+      frameInCycle = constrain(frameInCycle, 0, totalFrames - 1);
     }
   }
 
-  let segIndex = floor(frameInCycle / totalFramesPerSegment);
-  let angle = 0;
-  for (let i = 0; i < segIndex; i++) {
-    angle += turns[i];
-  }
+  let segIndex = floor(frameInCycle / segFrames);
+  let baseAngle = 0;
+  for (let i = 0; i < segIndex; i++) baseAngle += turnAngles[i] || 0;
 
-  let t = (frameInCycle % segmentLength) / segmentLength;
-  let transitionFrames = 12 / segmentLength;
-  if (t > 1 - transitionFrames && segIndex < turns.length) {
-    let turnProgress = (t - (1 - transitionFrames)) / transitionFrames;
-    angle += turns[segIndex] * ease(turnProgress);
+  let frac = (frameInCycle % segLength) / segLength;
+  let transFrames = 12 / segLength;
+  if (frac > 1 - transFrames && segIndex < 4) {
+    let prog = (frac - (1 - transFrames)) / transFrames;
+    baseAngle += turnAngles[segIndex] * ease(prog);
   }
 
   if (animating) {
-    let head = path[path.length - 1];
-    let newX = head.x + cos(angle) * step * direction;
-    let newY = head.y + sin(angle) * step * direction;
-    path.push({ x: newX, y: newY });
-    if (path.length > numPoints) path.shift();
+    let headX = ptsX[ptsX.length - 1];
+    let headY = ptsY[ptsY.length - 1];
+    let wobble = sin(frameCount * 0.08) * 0.15;
+    let a = baseAngle + wobble;
+    let nx = headX + cos(a) * stepSize * direction;
+    let ny = headY + sin(a) * stepSize * direction;
+
+    for (let i = 0; i < ptsX.length - 1; i++) {
+      ptsX[i] = ptsX[i + 1];
+      ptsY[i] = ptsY[i + 1];
+    }
+    ptsX[ptsX.length - 1] = nx;
+    ptsY[ptsY.length - 1] = ny;
   }
 
   fill(0);
-  for (let i = 0; i < path.length; i++) {
-    let p = path[i];
-    let thickness = lerp(minThick, maxThick, (p.y + snakeY) / height);
-    ellipse(snakeX + p.x, snakeY + p.y, thickness);
+  for (let i = 0; i < ptsX.length; i += 3) {
+    let th = lerp(minTh, maxTh, (ptsY[i] + snakeY) / height);
+    ellipse(snakeX + ptsX[i], snakeY + ptsY[i], th);
   }
 
-  let snakeHead = path[path.length - 1];
-  let headSize = lerp(minThick, maxThick, (snakeHead.y + snakeY) / height);
+  let headSize = lerp(minTh, maxTh, (ptsY[ptsY.length - 1] + snakeY) / height);
   fill(255);
-  ellipse(snakeX + snakeHead.x - headSize * 0.25, snakeY + snakeHead.y - headSize * 0.25, headSize * 0.15);
-  ellipse(snakeX + snakeHead.x + headSize * 0.25, snakeY + snakeHead.y - headSize * 0.25, headSize * 0.15);
+  ellipse(snakeX + ptsX[ptsX.length - 1] - headSize * 0.25, snakeY + ptsY[ptsY.length - 1] - headSize * 0.25, headSize * 0.15);
+  ellipse(snakeX + ptsX[ptsX.length - 1] + headSize * 0.25, snakeY + ptsY[ptsY.length - 1] - headSize * 0.25, headSize * 0.15);
 }
 
 function drawIcons() {
   push();
-  translate(apple.x, apple.y);
-  drawApple(apple.size);
+  translate(appleX, appleY);
+  
+  fill(180, 0, 0);
+  ellipse(-2, 2, appleSize);
+  fill(220, 20, 20);
+  ellipse(0, 0, appleSize);
+  fill(255, 60, 60);
+  ellipse(appleSize * 0.15, -appleSize * 0.15, appleSize * 0.4);
+  
+  fill(80, 60, 30);
+  rect(-2, -appleSize / 2, 4, 8);
+  fill(50, 120, 40);
+  ellipse(0, -appleSize / 2 - 6, 12, 8);
   pop();
 
   push();
-  translate(hammer.x, hammer.y);
-  drawHammer(hammer.size);
-  pop();
-}
-
-function drawApple(size) {
-  noStroke();
-  let r = size / 2;
-
-  for (let i = 0; i < r; i++) {
-    let inter = map(i, 0, r, 0, 1);
-    fill(lerpColor(color(220, 0, 0), color(150, 0, 0), inter));
-    ellipse(0, 0, r * 2 - i, r * 2 - i);
-  }
-
-  // Highlight
-  fill(255, 255, 255, 80);
-  ellipse(-r / 3, -r / 3, r * 0.6);
-
-  // Stem
-  stroke(60, 30, 10);
-  strokeWeight(4);
-  line(0, -r * 1.1, 0, -r * 1.5);
-
-  // Leaf
-  noStroke();
-  fill(60, 180, 75);
-  ellipse(r * 0.4, -r * 1.3, r * 0.6, r * 0.3);
-}
-
-function drawHammer(size) {
-  let headW = size * 0.8;
-  let headH = size * 0.3;
-  let handleH = size * 1.4;
-  let handleW = size * 0.15;
-
-  push();
-  fill(120, 80, 40);
-  rect(-handleW / 2, 10, handleW, handleH, 4);
-  stroke(180, 130, 80);
-  strokeWeight(1);
-  for (let y = 15; y < handleH; y += 8) {
-    line(-handleW / 2 + 2, y, handleW / 2 - 2, y);
-  }
-  pop();
-
-  push();
-  noStroke();
-  for (let i = 0; i < 10; i++) {
-    let inter = map(i, 0, 9, 0, 1);
-    fill(lerpColor(color(180), color(100), inter));
-    rect(-headW / 2, -headH / 2 - i * 0.5, headW, headH, 5);
-  }
-
-  fill(80);
-  arc(-headW / 2, -headH * 0.3, headH, headH * 1.3, PI, TWO_PI);
-
-  // Highlight
-  fill(255, 255, 255, 60);
-  rect(-headW / 2 + 5, -headH / 2 + 2, headW - 10, headH / 3, 5);
+  translate(hammerX, hammerY);
+  
+  fill(100);
+  rect(-hammerSize * 0.25 + 2, -hammerSize * 0.12 + 2, hammerSize * 0.5, hammerSize * 0.24);
+  fill(180);
+  rect(-hammerSize * 0.25, -hammerSize * 0.12, hammerSize * 0.5, hammerSize * 0.24);
+  fill(220);
+  rect(-hammerSize * 0.2, -hammerSize * 0.08, hammerSize * 0.15, hammerSize * 0.12);
+  
+  fill(70, 50, 25);
+  rect(-hammerSize * 0.05 + 1, 1, hammerSize * 0.1, hammerSize);
+  fill(120, 85, 50);
+  rect(-hammerSize * 0.05, 0, hammerSize * 0.1, hammerSize);
+  fill(140, 100, 60);
+  rect(-hammerSize * 0.04, hammerSize * 0.1, hammerSize * 0.08, hammerSize * 0.3);
   pop();
 }
 
 function mousePressed() {
-  if (dist(mouseX, mouseY, apple.x, apple.y) < apple.size / 2) apple.dragging = true;
-  if (dist(mouseX, mouseY, hammer.x, hammer.y) < hammer.size / 2) hammer.dragging = true;
+  if (dist(mouseX, mouseY, appleX, appleY) < appleSize / 2) appleDragging = true;
+  if (dist(mouseX, mouseY, hammerX, hammerY) < hammerSize / 2) hammerDragging = true;
 }
 
 function mouseReleased() {
-  if (apple.dragging) {
-    apple.dragging = false;
+  if (appleDragging) {
+    appleDragging = false;
     if (isOverSnake(mouseX, mouseY)) triggerSnakeMove(1);
-    apple.x = 700;
-    apple.y = 150;
+    appleX = 700;
+    appleY = 150;
   }
-  if (hammer.dragging) {
-    hammer.dragging = false;
-    if (isOverSnake(mouseX, mouseY)) triggerSnakeMove(-1);
-    hammer.x = 700;
-    hammer.y = 280;
+  if (hammerDragging) {
+    hammerDragging = false;
+    if (isOverSnake(mouseX, mouseY)) triggerPortalAnimation();
+    hammerX = 700;
+    hammerY = 280;
   }
 }
 
 function handleDragging() {
-  if (apple.dragging) {
-    apple.x = mouseX;
-    apple.y = mouseY;
+  if (appleDragging) {
+    appleX = mouseX;
+    appleY = mouseY;
   }
-  if (hammer.dragging) {
-    hammer.x = mouseX;
-    hammer.y = mouseY;
+  if (hammerDragging) {
+    hammerX = mouseX;
+    hammerY = mouseY;
   }
 }
 
 function isOverSnake(x, y) {
-  let head = path[path.length - 1];
-  let hx = snakeX + head.x;
-  let hy = snakeY + head.y;
+  let hx = snakeX + ptsX[ptsX.length - 1];
+  let hy = snakeY + ptsY[ptsY.length - 1];
   return dist(x, y, hx, hy) < 100;
 }
 
@@ -237,9 +234,112 @@ function triggerSnakeMove(dir) {
   direction = dir;
   animating = true;
   if (dir === 1) frameInCycle = 0;
-  else frameInCycle = segmentLength * turns.length - 1;
+  else frameInCycle = segLength * 4 - 1;
 }
 
 function ease(t) {
   return 0.5 - 0.5 * cos(PI * t);
+}
+
+function triggerPortalAnimation() {
+  let headX = snakeX + ptsX[ptsX.length - 1];
+  let headY = snakeY + ptsY[ptsY.length - 1];
+  entryPortalX = headX;
+  entryPortalY = headY + 50;
+  
+  exitPortalX = 200;
+  exitPortalY = 80;
+  
+  portalActive = true;
+  portalPhase = 0;
+  animating = false;
+  
+  entryPortalOpen = true;
+  entryPortalSize = 0;
+  exitPortalSize = 0;
+}
+
+function handlePortalAnimation() {
+  let entryMaxSize = lerp(20, 120, entryPortalY / height);
+  let exitMaxSize = lerp(20, 120, exitPortalY / height);
+  
+  if (entryPortalOpen && entryPortalSize < entryMaxSize) {
+    entryPortalSize += 3;
+  }
+  
+  if (!entryPortalOpen && entryPortalSize > 0) {
+    entryPortalSize -= 3;
+  }
+  
+  if (exitPortalOpen && exitPortalSize < exitMaxSize) {
+    exitPortalSize += 3;
+  }
+  
+  if (!exitPortalOpen && exitPortalSize > 0) {
+    exitPortalSize -= 3;
+  }
+  
+  if (portalPhase === 0) {
+    if (ptsX.length > 0) {
+      let headX = ptsX[ptsX.length - 1];
+      let headY = ptsY[ptsY.length - 1];
+      
+      let dx = entryPortalX - (snakeX + headX);
+      let dy = entryPortalY - (snakeY + headY);
+      let distance = sqrt(dx * dx + dy * dy);
+      
+      if (distance > 5) {
+        let angle = atan2(dy, dx);
+        let nx = headX + cos(angle) * 2;
+        let ny = headY + sin(angle) * 2;
+        
+        for (let i = 0; i < ptsX.length - 1; i++) {
+          ptsX[i] = ptsX[i + 1];
+          ptsY[i] = ptsY[i + 1];
+        }
+        ptsX[ptsX.length - 1] = nx;
+        ptsY[ptsY.length - 1] = ny;
+      } else {
+        ptsX.shift();
+        ptsY.shift();
+      }
+    }
+    
+    if (ptsX.length === 0) {
+      entryPortalOpen = false;
+      portalPhase = 1;
+      snakeX = exitPortalX;
+      snakeY = exitPortalY;
+      exitPortalOpen = true;
+    }
+  } 
+  else {
+    if (ptsX.length < snakeLength) {
+      ptsX.unshift(0);
+      ptsY.unshift(0);
+    }
+    
+    for (let i = 0; i < ptsX.length; i++) {
+      ptsX[i] += stepSize;
+    }
+    
+    if (ptsX.length >= snakeLength && ptsX[ptsX.length - 1] > 100) {
+      exitPortalOpen = false;
+      portalActive = false;
+      portalPhase = 0;
+    }
+  }
+}
+
+function drawPortal(x, y, size) {
+  let colorShift = sin(frameCount * 0.1) * 30;
+  
+  for (let i = size; i > 0; i -= size / 10) {
+    let t = i / size;
+    let r = 60 + colorShift + t * 140;
+    let g = 20 + t * 130;
+    let b = 80 + t * 175;
+    fill(r, g, b);
+    ellipse(x, y, i);
+  }
 }
